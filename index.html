@@ -250,12 +250,12 @@
                 fireIntensity = 0.4;
             }
 
-            // Update sparks
+            // Update sparks (falling downward for upside-down fire)
             sparks = sparks.filter(spark => {
-                spark.y -= spark.vy;
+                spark.y += spark.vy;
                 spark.x += spark.vx;
                 spark.life -= 0.02;
-                spark.vy -= 0.1; // Gravity
+                spark.vy += 0.1; // Gravity pulling down
                 return spark.life > 0;
             });
         }
@@ -264,9 +264,9 @@
             if (sparks.length < CONFIG.sparkCount) {
                 sparks.push({
                     x: centerX + (Math.random() - 0.5) * 40,
-                    y: centerY - 80,
+                    y: centerY - 20,  // Start from top of log
                     vx: (Math.random() - 0.5) * 3,
-                    vy: 3 + Math.random() * 4,
+                    vy: 3 + Math.random() * 4,  // Positive vy = falling down
                     life: 1.0,
                     size: 2 + Math.random() * 4
                 });
@@ -300,20 +300,20 @@
         // FIRE RENDERING (PIXEL STYLE)
         // ===================================
         function drawFire() {
-            const baseY = centerY + 40;
+            const baseY = centerY - 60;
 
             // Draw log
             drawLog(baseY);
 
-            // Draw fire with pixel style (bigger)
+            // Draw fire with pixel style (bigger, upside down)
             const fireHeight = 40 + (fireIntensity * 200);
             const fireWidth = 60 + (fireIntensity * 100);
 
-            // Fire layers (bottom to top)
+            // Fire layers (top to bottom - upside down)
             for (let layer = 0; layer < 3; layer++) {
                 const layerHeight = fireHeight * (1 - layer * 0.3);
                 const layerWidth = fireWidth * (1 - layer * 0.2);
-                const layerY = baseY - layerHeight;
+                const layerY = baseY + 35; // Start below the log
 
                 // Color based on layer and intensity
                 let color;
@@ -333,8 +333,8 @@
                 drawFlameLayer(centerX, layerY, layerWidth, layerHeight, color);
             }
 
-            // Draw embers at base
-            drawEmbers(baseY);
+            // Draw embers at base (top of upside-down fire)
+            drawEmbers(baseY + 10);
 
             // Draw sparks
             drawSparks();
@@ -405,7 +405,7 @@
             ctx.font = '20px "Courier New"';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
             ctx.textAlign = 'center';
-            ctx.fillText('Blow to feed the fire.', centerX, centerY + 180);
+            ctx.fillText('Blow to feed the fire.', centerX, centerY - 120);
 
             // Draw mic status and meter in bottom right
             const meterX = width - 80;
