@@ -118,10 +118,10 @@
             breathThresholdMax: 0.15,       // Maximum audio level for normalization (more sensitive)
 
             // Fire behavior
-            fireDecayRate: 0.002,           // How fast fire weakens without breath
-            fireMinIntensity: 0.15,         // Minimum fire intensity (embers)
+            fireDecayRate: 0.005,           // How fast fire weakens without breath
+            fireMinIntensity: 0.0,          // Minimum fire intensity (no fire at rest)
             fireMaxIntensity: 1.0,          // Maximum fire intensity
-            fireResponseSpeed: 0.1,         // How fast fire responds to breath (0-1)
+            fireResponseSpeed: 0.15,        // How fast fire responds to breath (0-1)
 
             // Visual settings
             pixelSize: 3,                   // Size of fire "pixels"
@@ -186,7 +186,7 @@
         // ===================================
         // BREATH INTENSITY CALCULATION
         // ===================================
-        let breathIntensity = CONFIG.fireMinIntensity; // Current breath intensity (0-1)
+        let breathIntensity = 0.0; // Current breath intensity (0-1), starts with no fire
 
         function updateBreathIntensity() {
             if (!analyser || !dataArray) return;
@@ -208,7 +208,7 @@
             // Convert to breath intensity (0-1)
             let targetIntensity;
             if (smoothedAudioLevel < CONFIG.breathThresholdMin) {
-                targetIntensity = CONFIG.fireMinIntensity;
+                targetIntensity = 0.0; // No fire when no breath
             } else {
                 // Normalize between min and max threshold
                 const normalized = Math.min(
@@ -216,24 +216,25 @@
                     (CONFIG.breathThresholdMax - CONFIG.breathThresholdMin),
                     1.0
                 );
-                targetIntensity = CONFIG.fireMinIntensity +
-                    (normalized * (CONFIG.fireMaxIntensity - CONFIG.fireMinIntensity));
+                targetIntensity = normalized * CONFIG.fireMaxIntensity;
             }
 
             // Smooth transition to target intensity
             breathIntensity += (targetIntensity - breathIntensity) * CONFIG.fireResponseSpeed;
 
+            // Decay back to zero when no breath
+            if (targetIntensity === 0.0) {
+                breathIntensity = Math.max(0, breathIntensity - CONFIG.fireDecayRate);
+            }
+
             // Clamp values
-            breathIntensity = Math.max(
-                CONFIG.fireMinIntensity,
-                Math.min(CONFIG.fireMaxIntensity, breathIntensity)
-            );
+            breathIntensity = Math.max(0, Math.min(CONFIG.fireMaxIntensity, breathIntensity));
         }
 
         // ===================================
         // FIRE STATE & DECAY
         // ===================================
-        let fireIntensity = CONFIG.fireMinIntensity; // Current fire state
+        let fireIntensity = 0.0; // Current fire state (starts with no fire)
         let sparks = [];
 
         function updateFireState() {
@@ -246,8 +247,8 @@
                     createSpark();
                 }
             } else {
-                // Static gentle fire without mic
-                fireIntensity = 0.4;
+                // No fire without mic (user needs to grant access)
+                fireIntensity = 0.0;
             }
 
             // Update sparks (flying upward)
@@ -305,9 +306,9 @@
             // Draw log
             drawLog(baseY);
 
-            // Draw fire with pixel style (bigger)
-            const fireHeight = 40 + (fireIntensity * 200);
-            const fireWidth = 60 + (fireIntensity * 100);
+            // Draw fire with pixel style (grows from nothing)
+            const fireHeight = fireIntensity * 240;
+            const fireWidth = fireIntensity * 160;
 
             // Fire layers (bottom to top)
             for (let layer = 0; layer < 3; layer++) {
@@ -380,7 +381,9 @@
         }
 
         function drawEmbers(baseY) {
-            const emberCount = Math.floor(8 + fireIntensity * 15);
+            if (fireIntensity < 0.05) return; // No embers when no fire
+
+            const emberCount = Math.floor(fireIntensity * 23);
             ctx.fillStyle = `rgba(255, 100, 0, ${0.3 + fireIntensity * 0.5})`;
 
             for (let i = 0; i < emberCount; i++) {
@@ -407,7 +410,8 @@
             ctx.font = '20px "Courier New"';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
             ctx.textAlign = 'center';
-            ctx.fillText('Blow to feed the fire.', centerX, centerY + 180);
+            const message = fireIntensity < 0.05 ? 'Blow to start the fire.' : 'Keep blowing to feed the fire.';
+            ctx.fillText(message, centerX, centerY + 180);
 
             // Draw mic status and meter in bottom right
             const meterX = width - 80;
@@ -452,7 +456,7 @@
             ctx.stroke();
 
             // Inner circle based on breath intensity
-            const meterRadius = 5 + (fireIntensity - CONFIG.fireMinIntensity) * 20;
+            const meterRadius = 5 + fireIntensity * 20;
             const gradient = ctx.createRadialGradient(x, y, 0, x, y, meterRadius);
 
             if (fireIntensity > 0.6) {
