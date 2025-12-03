@@ -114,8 +114,8 @@
         const CONFIG = {
             // Audio settings
             audioSmoothingFactor: 0.8,      // Higher = smoother but slower response (0-1)
-            breathThresholdMin: 0.02,       // Minimum audio level to register as breath
-            breathThresholdMax: 0.3,        // Maximum audio level for normalization
+            breathThresholdMin: 0.005,      // Minimum audio level to register as breath (more sensitive)
+            breathThresholdMax: 0.15,       // Maximum audio level for normalization (more sensitive)
 
             // Fire behavior
             fireDecayRate: 0.002,           // How fast fire weakens without breath
@@ -263,12 +263,12 @@
         function createSpark() {
             if (sparks.length < CONFIG.sparkCount) {
                 sparks.push({
-                    x: centerX + (Math.random() - 0.5) * 20,
-                    y: centerY - 20,
-                    vx: (Math.random() - 0.5) * 2,
-                    vy: 2 + Math.random() * 3,
+                    x: centerX + (Math.random() - 0.5) * 40,
+                    y: centerY - 80,
+                    vx: (Math.random() - 0.5) * 3,
+                    vy: 3 + Math.random() * 4,
                     life: 1.0,
-                    size: 2 + Math.random() * 3
+                    size: 2 + Math.random() * 4
                 });
             }
         }
@@ -300,14 +300,14 @@
         // FIRE RENDERING (PIXEL STYLE)
         // ===================================
         function drawFire() {
-            const baseY = centerY + 80;
+            const baseY = centerY + 40;
 
             // Draw log
             drawLog(baseY);
 
-            // Draw fire with pixel style
-            const fireHeight = 20 + (fireIntensity * 80);
-            const fireWidth = 30 + (fireIntensity * 40);
+            // Draw fire with pixel style (bigger)
+            const fireHeight = 40 + (fireIntensity * 200);
+            const fireWidth = 60 + (fireIntensity * 100);
 
             // Fire layers (bottom to top)
             for (let layer = 0; layer < 3; layer++) {
@@ -341,15 +341,15 @@
         }
 
         function drawLog(baseY) {
-            // Simple log
+            // Simple log (bigger)
             ctx.fillStyle = '#3d2817';
-            ctx.fillRect(centerX - 60, baseY, 120, 25);
+            ctx.fillRect(centerX - 90, baseY, 180, 35);
 
             // Log texture
             ctx.fillStyle = '#2d1810';
-            for (let i = 0; i < 5; i++) {
-                const x = centerX - 50 + i * 25;
-                ctx.fillRect(x, baseY + 5, 3, 15);
+            for (let i = 0; i < 6; i++) {
+                const x = centerX - 75 + i * 30;
+                ctx.fillRect(x, baseY + 8, 4, 20);
             }
         }
 
@@ -378,14 +378,14 @@
         }
 
         function drawEmbers(baseY) {
-            const emberCount = Math.floor(5 + fireIntensity * 10);
+            const emberCount = Math.floor(8 + fireIntensity * 15);
             ctx.fillStyle = `rgba(255, 100, 0, ${0.3 + fireIntensity * 0.5})`;
 
             for (let i = 0; i < emberCount; i++) {
-                const x = centerX - 40 + (i / emberCount) * 80;
+                const x = centerX - 70 + (i / emberCount) * 140;
                 const flicker = Math.sin(Date.now() * 0.01 + i) * 2;
-                const size = 2 + fireIntensity * 3;
-                ctx.fillRect(x + flicker, baseY + 2, size, size);
+                const size = 2 + fireIntensity * 4;
+                ctx.fillRect(x + flicker, baseY + 4, size, size);
             }
         }
 
@@ -405,7 +405,7 @@
             ctx.font = '20px "Courier New"';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
             ctx.textAlign = 'center';
-            ctx.fillText('Blow to feed the fire.', centerX, centerY + 140);
+            ctx.fillText('Blow to feed the fire.', centerX, centerY + 180);
 
             // Draw mic status and meter in bottom right
             const meterX = width - 80;
