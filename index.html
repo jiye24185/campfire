@@ -356,26 +356,16 @@
         function drawFlameLayer(x, y, w, h, color) {
             ctx.fillStyle = color;
 
-            // Create flame shape with animated pixels
+            // Create flame shape with animated pixels - normal taper
             const pixelSize = CONFIG.pixelSize;
             const cols = Math.floor(w / pixelSize);
             const rows = Math.floor(h / pixelSize);
-            const midRow = rows * 0.5; // Split point for inverting top half
 
             for (let row = 0; row < rows; row++) {
                 const rowY = y + row * pixelSize;
 
-                // Calculate row width based on position
-                let rowWidthFactor;
-                if (row < midRow) {
-                    // Bottom half: normal taper (wide at bottom, narrow at middle)
-                    rowWidthFactor = 1 - (row / midRow) * 0.5;
-                } else {
-                    // Top half: inverted taper (narrow at middle, wide at top)
-                    rowWidthFactor = 0.5 + ((row - midRow) / (rows - midRow)) * 0.5;
-                }
-
-                const rowWidth = w * rowWidthFactor *
+                // Normal flame: wide at bottom, narrow at top
+                const rowWidth = w * (1 - row / rows) *
                     (0.8 + Math.sin(Date.now() * 0.003 + row * 0.5) * 0.2);
                 const pixelsInRow = Math.floor(rowWidth / pixelSize);
 
