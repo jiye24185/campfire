@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campfire - Feed the Fire with Your Breath</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            background: #1a2a3a;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Overlay for initial mic permission */
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+        }
+
+        #overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .overlay-content {
+            text-align: center;
+            color: #fff;
+            max-width: 500px;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .overlay-content h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #ffa500;
+        }
+
+        .overlay-content p {
+            font-size: 16px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .overlay-content button {
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            padding: 15px 40px;
+            background: #ff6b35;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .overlay-content button:hover {
+            background: #ff8555;
+            transform: scale(1.05);
+        }
+
+        /* Microphone icon animation */
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .mic-icon {
+            animation: pulse 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <!-- Initial overlay for mic permission -->
+    <div id="overlay">
+        <div class="overlay-content">
+            <h2>🔥 Campfire Experience 🔥</h2>
+            <p>Allow microphone access to feed the fire with your breath.</p>
+            <p style="font-size: 14px; opacity: 0.8;">Blow gently to keep the fire alive.</p>
+            <button id="gotItBtn">Got it</button>
+        </div>
+    </div>
+
+    <script>
+        // ===================================
+        // CONFIGURATION & CONSTANTS
+        // ===================================
+        const CONFIG = {
+            // Audio settings
+            audioSmoothingFactor: 0.8,      // Higher = smoother but slower response (0-1)
+            breathThresholdMin: 0.02,       // Minimum audio level to register as breath
+            breathThresholdMax: 0.3,        // Maximum audio level for normalization
+
+            // Fire behavior
+            fireDecayRate: 0.002,           // How fast fire weakens without breath
+            fireMinIntensity: 0.15,         // Minimum fire intensity (embers)
+            fireMaxIntensity: 1.0,          // Maximum fire intensity
+            fireResponseSpeed: 0.1,         // How fast fire responds to breath (0-1)
+
+            // Visual settings
+            pixelSize: 3,                   // Size of fire "pixels"
+            sparkCount: 15,                 // Number of sparks with strong breath
+
+            // Background animation
+            bgColorShiftSpeed: 0.0005,      // Speed of background color change
+        };
+
+        // ===================================
+        // CANVAS & CONTEXT SETUP
+        // ===================================
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, centerX, centerY;
+
+        function resizeCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // ===================================
+        // AUDIO SETUP & MICROPHONE
+        // ===================================
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let dataArray = null;
+        let bufferLength = 0;
+        let micPermissionGranted = false;
+        let rawAudioLevel = 0;
+        let smoothedAudioLevel = 0;
+
+        async function setupAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(stream);
+
+                analyser.fftSize = 256;
+                analyser.smoothingTimeConstant = 0.8;
+                bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+
+                microphone.connect(analyser);
+                micPermissionGranted = true;
+
+                console.log('Microphone access granted');
+                return true;
+            } catch (error) {
+                console.error('Microphone access denied:', error);
+                micPermissionGranted = false;
+                return false;
+            }
+        }
+
+        // ===================================
+        // BREATH INTENSITY CALCULATION
+        // ===================================
+        let breathIntensity = CONFIG.fireMinIntensity; // Current breath intensity (0-1)
+
+        function updateBreathIntensity() {
+            if (!analyser || !dataArray) return;
+
+            // Get audio data
+            analyser.getByteTimeDomainData(dataArray);
+
+            // Calculate RMS (Root Mean Square) for audio level
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const normalized = (dataArray[i] - 128) / 128;
+                sum += normalized * normalized;
+            }
+            rawAudioLevel = Math.sqrt(sum / bufferLength);
+
+            // Smooth the audio level
+            smoothedAudioLevel += (rawAudioLevel - smoothedAudioLevel) * CONFIG.audioSmoothingFactor;
+
+            // Convert to breath intensity (0-1)
+            let targetIntensity;
+            if (smoothedAudioLevel < CONFIG.breathThresholdMin) {
+                targetIntensity = CONFIG.fireMinIntensity;
+            } else {
+                // Normalize between min and max threshold
+                const normalized = Math.min(
+                    (smoothedAudioLevel - CONFIG.breathThresholdMin) /
+                    (CONFIG.breathThresholdMax - CONFIG.breathThresholdMin),
+                    1.0
+                );
+                targetIntensity = CONFIG.fireMinIntensity +
+                    (normalized * (CONFIG.fireMaxIntensity - CONFIG.fireMinIntensity));
+            }
+
+            // Smooth transition to target intensity
+            breathIntensity += (targetIntensity - breathIntensity) * CONFIG.fireResponseSpeed;
+
+            // Clamp values
+            breathIntensity = Math.max(
+                CONFIG.fireMinIntensity,
+                Math.min(CONFIG.fireMaxIntensity, breathIntensity)
+            );
+        }
+
+        // ===================================
+        // FIRE STATE & DECAY
+        // ===================================
+        let fireIntensity = CONFIG.fireMinIntensity; // Current fire state
+        let sparks = [];
+
+        function updateFireState() {
+            if (micPermissionGranted) {
+                updateBreathIntensity();
+                fireIntensity = breathIntensity;
+
+                // Create sparks on strong breath
+                if (fireIntensity > 0.7 && Math.random() > 0.7) {
+                    createSpark();
+                }
+            } else {
+                // Static gentle fire without mic
+                fireIntensity = 0.4;
+            }
+
+            // Update sparks
+            sparks = sparks.filter(spark => {
+                spark.y -= spark.vy;
+                spark.x += spark.vx;
+                spark.life -= 0.02;
+                spark.vy -= 0.1; // Gravity
+                return spark.life > 0;
+            });
+        }
+
+        function createSpark() {
+            if (sparks.length < CONFIG.sparkCount) {
+                sparks.push({
+                    x: centerX + (Math.random() - 0.5) * 20,
+                    y: centerY - 20,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: 2 + Math.random() * 3,
+                    life: 1.0,
+                    size: 2 + Math.random() * 3
+                });
+            }
+        }
+
+        // ===================================
+        // BACKGROUND RENDERING
+        // ===================================
+        let bgHue = 200; // Starting hue for blue/teal
+
+        function drawBackground() {
+            // Slowly shift background color
+            bgHue += CONFIG.bgColorShiftSpeed;
+            if (bgHue > 220) bgHue = 190; // Cycle between blue and teal
+
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.max(width, height)
+            );
+
+            gradient.addColorStop(0, `hsl(${bgHue}, 40%, 15%)`);
+            gradient.addColorStop(0.5, `hsl(${bgHue + 10}, 45%, 12%)`);
+            gradient.addColorStop(1, `hsl(${bgHue - 10}, 50%, 8%)`);
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        // ===================================
+        // FIRE RENDERING (PIXEL STYLE)
+        // ===================================
+        function drawFire() {
+            const baseY = centerY + 80;
+
+            // Draw log
+            drawLog(baseY);
+
+            // Draw fire with pixel style
+            const fireHeight = 20 + (fireIntensity * 80);
+            const fireWidth = 30 + (fireIntensity * 40);
+
+            // Fire layers (bottom to top)
+            for (let layer = 0; layer < 3; layer++) {
+                const layerHeight = fireHeight * (1 - layer * 0.3);
+                const layerWidth = fireWidth * (1 - layer * 0.2);
+                const layerY = baseY - layerHeight;
+
+                // Color based on layer and intensity
+                let color;
+                if (layer === 0) {
+                    // Core - bright yellow/white
+                    const brightness = Math.floor(200 + fireIntensity * 55);
+                    color = `rgb(${brightness}, ${brightness - 30}, ${100 + fireIntensity * 100})`;
+                } else if (layer === 1) {
+                    // Middle - orange
+                    color = `rgb(255, ${140 + fireIntensity * 40}, ${fireIntensity * 50})`;
+                } else {
+                    // Outer - red/orange
+                    color = `rgb(${220 + fireIntensity * 35}, ${60 + fireIntensity * 60}, 20)`;
+                }
+
+                // Draw flame shape with pixels
+                drawFlameLayer(centerX, layerY, layerWidth, layerHeight, color);
+            }
+
+            // Draw embers at base
+            drawEmbers(baseY);
+
+            // Draw sparks
+            drawSparks();
+        }
+
+        function drawLog(baseY) {
+            // Simple log
+            ctx.fillStyle = '#3d2817';
+            ctx.fillRect(centerX - 60, baseY, 120, 25);
+
+            // Log texture
+            ctx.fillStyle = '#2d1810';
+            for (let i = 0; i < 5; i++) {
+                const x = centerX - 50 + i * 25;
+                ctx.fillRect(x, baseY + 5, 3, 15);
+            }
+        }
+
+        function drawFlameLayer(x, y, w, h, color) {
+            ctx.fillStyle = color;
+
+            // Create flame shape with animated pixels
+            const pixelSize = CONFIG.pixelSize;
+            const cols = Math.floor(w / pixelSize);
+            const rows = Math.floor(h / pixelSize);
+
+            for (let row = 0; row < rows; row++) {
+                const rowY = y + row * pixelSize;
+                const rowWidth = w * (1 - row / rows) *
+                    (0.8 + Math.sin(Date.now() * 0.003 + row * 0.5) * 0.2);
+                const pixelsInRow = Math.floor(rowWidth / pixelSize);
+
+                for (let col = 0; col < pixelsInRow; col++) {
+                    if (Math.random() > 0.3) { // Randomness for flicker
+                        const pixelX = x - rowWidth / 2 + col * pixelSize +
+                            Math.sin(Date.now() * 0.005 + col) * 2;
+                        ctx.fillRect(pixelX, rowY, pixelSize, pixelSize);
+                    }
+                }
+            }
+        }
+
+        function drawEmbers(baseY) {
+            const emberCount = Math.floor(5 + fireIntensity * 10);
+            ctx.fillStyle = `rgba(255, 100, 0, ${0.3 + fireIntensity * 0.5})`;
+
+            for (let i = 0; i < emberCount; i++) {
+                const x = centerX - 40 + (i / emberCount) * 80;
+                const flicker = Math.sin(Date.now() * 0.01 + i) * 2;
+                const size = 2 + fireIntensity * 3;
+                ctx.fillRect(x + flicker, baseY + 2, size, size);
+            }
+        }
+
+        function drawSparks() {
+            sparks.forEach(spark => {
+                const alpha = spark.life;
+                ctx.fillStyle = `rgba(255, ${200 + Math.random() * 55}, 100, ${alpha})`;
+                ctx.fillRect(spark.x, spark.y, spark.size, spark.size);
+            });
+        }
+
+        // ===================================
+        // UI RENDERING (TEXT, METER, ICON)
+        // ===================================
+        function drawUI() {
+            // Draw instruction text
+            ctx.font = '20px "Courier New"';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.textAlign = 'center';
+            ctx.fillText('Blow to feed the fire.', centerX, centerY + 140);
+
+            // Draw mic status and meter in bottom right
+            const meterX = width - 80;
+            const meterY = height - 80;
+
+            if (!micPermissionGranted) {
+                // Show warning message
+                ctx.font = '14px "Courier New"';
+                ctx.fillStyle = 'rgba(255, 200, 100, 0.8)';
+                ctx.textAlign = 'right';
+                ctx.fillText('Mic access needed', meterX + 30, meterY - 40);
+                ctx.fillText('to feed the fire', meterX + 30, meterY - 20);
+            }
+
+            // Draw microphone icon
+            drawMicrophoneIcon(meterX, meterY - 60);
+
+            // Draw breath meter
+            drawBreathMeter(meterX, meterY);
+        }
+
+        function drawMicrophoneIcon(x, y) {
+            const alpha = micPermissionGranted ? 0.8 : 0.4;
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+
+            // Mic body
+            ctx.beginPath();
+            ctx.roundRect(x - 6, y - 10, 12, 16, 6);
+            ctx.fill();
+
+            // Mic stand
+            ctx.fillRect(x - 1, y + 6, 2, 8);
+            ctx.fillRect(x - 6, y + 13, 12, 2);
+        }
+
+        function drawBreathMeter(x, y) {
+            // Outer circle
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, 30, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Inner circle based on breath intensity
+            const meterRadius = 5 + (fireIntensity - CONFIG.fireMinIntensity) * 20;
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, meterRadius);
+
+            if (fireIntensity > 0.6) {
+                gradient.addColorStop(0, 'rgba(255, 200, 50, 0.9)');
+                gradient.addColorStop(1, 'rgba(255, 100, 0, 0.4)');
+            } else if (fireIntensity > 0.3) {
+                gradient.addColorStop(0, 'rgba(255, 180, 100, 0.8)');
+                gradient.addColorStop(1, 'rgba(255, 140, 50, 0.3)');
+            } else {
+                gradient.addColorStop(0, 'rgba(200, 150, 100, 0.6)');
+                gradient.addColorStop(1, 'rgba(150, 100, 50, 0.2)');
+            }
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(x, y, meterRadius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // ===================================
+        // ANIMATION LOOP
+        // ===================================
+        function animate() {
+            updateFireState();
+
+            drawBackground();
+            drawFire();
+            drawUI();
+
+            requestAnimationFrame(animate);
+        }
+
+        // ===================================
+        // INITIALIZATION
+        // ===================================
+        const overlay = document.getElementById('overlay');
+        const gotItBtn = document.getElementById('gotItBtn');
+
+        gotItBtn.addEventListener('click', async () => {
+            overlay.classList.add('hidden');
+            await setupAudio();
+
+            // Start animation after overlay is dismissed
+            setTimeout(() => {
+                animate();
+            }, 500);
+        });
+
+        // Add polyfill for roundRect if needed
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+                this.moveTo(x + r, y);
+                this.lineTo(x + w - r, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r);
+                this.lineTo(x + w, y + h - r);
+                this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                this.lineTo(x + r, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r);
+                this.lineTo(x, y + r);
+                this.quadraticCurveTo(x, y, x + r, y);
+            };
+        }
+    </script>
+</body>
+</html>
